@@ -2,6 +2,7 @@
 
 from typing import Any
 
+# 基础指标
 from ragas.metrics import (
     AnswerAccuracy,
     AnswerCorrectness,
@@ -10,6 +11,113 @@ from ragas.metrics import (
     Faithfulness,
     ResponseRelevancy,
 )
+
+# 尝试导入更多指标（某些指标可能在不同版本的Ragas中可用）
+try:
+    from ragas.metrics import ContextEntityRecall
+except ImportError:
+    ContextEntityRecall = None
+
+try:
+    from ragas.metrics import NoiseSensitivity
+except ImportError:
+    NoiseSensitivity = None
+
+try:
+    from ragas.metrics import ContextRelevance
+except ImportError:
+    ContextRelevance = None
+
+try:
+    from ragas.metrics import ResponseGroundedness
+except ImportError:
+    ResponseGroundedness = None
+
+try:
+    from ragas.metrics import SemanticSimilarity
+except ImportError:
+    SemanticSimilarity = None
+
+try:
+    from ragas.metrics import BleuScore
+except ImportError:
+    BleuScore = None
+
+try:
+    from ragas.metrics import RougeScore
+except ImportError:
+    RougeScore = None
+
+try:
+    from ragas.metrics import ChrfScore
+except ImportError:
+    ChrfScore = None
+
+try:
+    from ragas.metrics import ExactMatch
+except ImportError:
+    ExactMatch = None
+
+try:
+    from ragas.metrics import StringPresence
+except ImportError:
+    StringPresence = None
+
+try:
+    from ragas.metrics._string import NonLLMStringSimilarity
+except ImportError:
+    NonLLMStringSimilarity = None
+
+try:
+    from ragas.metrics import AspectCritic
+except ImportError:
+    AspectCritic = None
+
+try:
+    from ragas.metrics import SimpleCriteriaScore
+except ImportError:
+    SimpleCriteriaScore = None
+
+try:
+    from ragas.metrics import RubricsScore
+except ImportError:
+    RubricsScore = None
+
+try:
+    from ragas.metrics import SummarizationScore
+except ImportError:
+    SummarizationScore = None
+
+try:
+    from ragas.metrics import LLMSQLEquivalence
+except ImportError:
+    LLMSQLEquivalence = None
+
+try:
+    from ragas.metrics import DataCompyScore
+except ImportError:
+    DataCompyScore = None
+
+# 多轮对话指标
+try:
+    from ragas.metrics import TopicAdherenceScore
+except ImportError:
+    TopicAdherenceScore = None
+
+try:
+    from ragas.metrics import ToolCallAccuracy
+except ImportError:
+    ToolCallAccuracy = None
+
+try:
+    from ragas.metrics import AgentGoalAccuracyWithReference
+except ImportError:
+    AgentGoalAccuracyWithReference = None
+
+try:
+    from ragas.metrics import AgentGoalAccuracyWithoutReference
+except ImportError:
+    AgentGoalAccuracyWithoutReference = None
 
 
 def create_metric(
@@ -36,45 +144,102 @@ def create_metric(
     metric_name_lower = metric_name.lower().strip()
 
     # 映射指标名称到Ragas类
-    metric_map: dict[str, type] = {
+    # 注意：某些指标可能在不同版本的Ragas中不可用
+    metric_map: dict[str, type | None] = {
+        # RAG核心指标
         "faithfulness": Faithfulness,
         "answer_relevancy": ResponseRelevancy,
         "response_relevancy": ResponseRelevancy,
         "relevancy": ResponseRelevancy,
         "context_precision": ContextPrecision,
         "context_recall": ContextRecall,
+        "context_entity_recall": ContextEntityRecall,
+        "noise_sensitivity": NoiseSensitivity,
+        # Nvidia高效指标
+        "context_relevance": ContextRelevance,
+        "response_groundedness": ResponseGroundedness,
         "answer_correctness": AnswerCorrectness,
         "answer_accuracy": AnswerAccuracy,
+        # 文本相似度指标
+        "semantic_similarity": SemanticSimilarity,
+        "bleu_score": BleuScore,
+        "bleu": BleuScore,
+        "rouge_score": RougeScore,
+        "rouge": RougeScore,
+        "chrf_score": ChrfScore,
+        "chrf": ChrfScore,
+        # 字符串匹配指标
+        "exact_match": ExactMatch,
+        "string_presence": StringPresence,
+        "non_llm_string_similarity": NonLLMStringSimilarity,
+        # 自定义评分指标
+        "aspect_critic": AspectCritic,
+        "simple_criteria_score": SimpleCriteriaScore,
+        "rubrics_score": RubricsScore,
+        # 专项领域指标
+        "summarization_score": SummarizationScore,
+        "llm_sql_equivalence": LLMSQLEquivalence,
+        "data_compy_score": DataCompyScore,
+        # 多轮对话指标（需要MultiTurnSample）
+        "topic_adherence_score": TopicAdherenceScore,
+        "tool_call_accuracy": ToolCallAccuracy,
+        "agent_goal_accuracy": AgentGoalAccuracyWithReference,
+        "agent_goal_accuracy_with_reference": AgentGoalAccuracyWithReference,
+        "agent_goal_accuracy_without_reference": AgentGoalAccuracyWithoutReference,
     }
+    
+    # 过滤掉不可用的指标
+    available_metrics = {k: v for k, v in metric_map.items() if v is not None}
 
-    metric_class = metric_map.get(metric_name_lower)
+    metric_class = available_metrics.get(metric_name_lower)
     if not metric_class:
+        available_names = sorted(available_metrics.keys())
         raise ValueError(
-            f"不支持的指标: {metric_name}。支持的指标: {', '.join(metric_map.keys())}"
+            f"不支持的指标: {metric_name}。支持的指标: {', '.join(available_names)}"
         )
 
     # 创建指标对象
-    # 某些指标需要embeddings，某些只需要llm
-    if metric_name_lower in ["answer_relevancy", "response_relevancy", "relevancy"]:
+    # 根据指标类型，某些需要embeddings，某些只需要llm，某些不需要任何参数
+    
+    # 需要embeddings的指标
+    if metric_name_lower in ["answer_relevancy", "response_relevancy", "relevancy", "semantic_similarity"]:
         if embeddings is None:
             raise ValueError(f"指标 {metric_name} 需要 embeddings 参数")
-        # ResponseRelevancy支持strictness参数，默认3，但会导致多次LLM调用
-        # 如果指定了strictness，使用它；否则使用默认值2（减少超时风险）
-        if strictness is not None:
-            metric_instance = metric_class(llm=llm, embeddings=embeddings, strictness=strictness)
+        
+        if metric_name_lower in ["answer_relevancy", "response_relevancy", "relevancy"]:
+            # ResponseRelevancy支持strictness参数
+            if strictness is not None:
+                metric_instance = metric_class(llm=llm, embeddings=embeddings, strictness=strictness)
+            else:
+                # 默认使用2而不是3，以减少LLM调用次数和超时风险
+                metric_instance = metric_class(llm=llm, embeddings=embeddings, strictness=2)
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"已创建 {metric_name} 指标，strictness={metric_instance.strictness if hasattr(metric_instance, 'strictness') else 'N/A'}")
+            return metric_instance
         else:
-            # 默认使用2而不是3，以减少LLM调用次数和超时风险
-            # ResponseRelevancy会调用strictness次LLM来生成问题，每次调用可能需要30-40秒
-            # strictness=2意味着2次调用，约60-80秒；strictness=3意味着3次调用，约90-120秒
-            metric_instance = metric_class(llm=llm, embeddings=embeddings, strictness=2)
-        
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"已创建 {metric_name} 指标，strictness={metric_instance.strictness if hasattr(metric_instance, 'strictness') else 'N/A'}")
-        
-        return metric_instance
-    else:
+            # SemanticSimilarity只需要embeddings
+            return metric_class(embeddings=embeddings)
+    
+    # 需要LLM的指标
+    elif metric_name_lower in [
+        "faithfulness", "context_precision", "context_recall", 
+        "context_entity_recall", "noise_sensitivity",
+        "context_relevance", "response_groundedness",
+        "answer_correctness", "answer_accuracy",
+        "aspect_critic", "simple_criteria_score", "rubrics_score",
+        "summarization_score", "llm_sql_equivalence",
+        "topic_adherence_score", "tool_call_accuracy",
+        "agent_goal_accuracy", "agent_goal_accuracy_with_reference",
+        "agent_goal_accuracy_without_reference"
+    ]:
         return metric_class(llm=llm)
+    
+    # 不需要参数的指标（非LLM指标）
+    else:
+        # BleuScore, RougeScore, ChrfScore, ExactMatch, StringPresence, NonLLMStringSimilarity, DataCompyScore
+        return metric_class()
 
 
 def create_metrics(
