@@ -1,0 +1,24 @@
+[
+  {
+    "user_input": "我不知道做点什么好",
+    "reference": "这是一个关于情绪和迷茫的问题，应该给出理解和支持性的回答",
+    "reference_contexts": []
+  },
+  {
+    "user_input": "Python如何读取文件？",
+    "reference": "使用open()函数打开文件，然后使用read()方法读取内容",
+    "reference_contexts": [
+      "Python文件操作的基本方法是使用open()函数",
+      "read()方法可以读取文件的全部内容"
+    ]
+  },
+  {
+    "user_input": "什么是机器学习？",
+    "reference": "机器学习是人工智能的一个分支，通过算法让计算机从数据中学习",
+    "reference_contexts": [
+      "机器学习是AI的核心技术之一",
+      "通过训练数据来改进算法性能"
+    ]
+  }
+]
+
