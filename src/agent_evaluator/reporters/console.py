@@ -26,10 +26,41 @@ class ConsoleReporter(BaseReporter):
         self.console.print(f"总体平均分: {report.overall_score:.4f}")
         self.console.print(f"总耗时: {report.duration:.2f}秒")
 
-        # 指标说明
+        # 指标说明（动态显示实际使用的指标）
         self.console.print("\n[bold yellow]指标说明[/bold yellow]")
-        self.console.print("  • [cyan]Faithfulness[/cyan]: 忠实度（0.0-1.0），衡量响应是否忠实于上下文，满分1.0")
-        self.console.print("  • [cyan]ResponseRelevancy[/cyan]: 相关性（0.0-1.0），衡量响应与问题的相关性，满分1.0")
+        
+        # 获取所有实际使用的指标
+        all_metrics = set()
+        for result in report.results:
+            if result.scores:
+                all_metrics.update(result.scores.keys())
+        
+        # 指标描述字典
+        metric_descriptions = {
+            "Faithfulness": "忠实度（0.0-1.0），衡量响应是否忠实于上下文，满分1.0",
+            "ResponseRelevancy": "相关性（0.0-1.0），衡量响应与问题的相关性，满分1.0",
+            "ContextPrecision": "上下文精确度（0.0-1.0），衡量检索到的上下文中与问题相关的比例，满分1.0",
+            "ContextRecall": "上下文召回率（0.0-1.0），衡量检索到的上下文覆盖标准答案的程度，满分1.0",
+            "ContextEntityRecall": "上下文实体召回率（0.0-1.0），衡量检索到的上下文中包含标准答案中实体的比例，满分1.0",
+            "AnswerCorrectness": "答案正确性（0.0-1.0），衡量答案的正确程度，满分1.0",
+            "AnswerAccuracy": "答案准确性（0.0-1.0），衡量答案的准确程度，满分1.0",
+            "ContextRelevance": "上下文相关性（0.0-1.0），衡量检索到的上下文与问题的相关性，满分1.0",
+            "ResponseGroundedness": "响应基础性（0.0-1.0），衡量响应基于上下文的程度，满分1.0",
+            "SemanticSimilarity": "语义相似度（0.0-1.0），衡量响应与标准答案的语义相似度，满分1.0",
+            "BleuScore": "BLEU分数（0.0-1.0），基于n-gram匹配的文本相似度，满分1.0",
+            "RougeScore": "ROUGE分数（0.0-1.0），基于召回率的文本相似度，满分1.0",
+            "ChrfScore": "CHRF分数（0.0-1.0），基于字符n-gram的文本相似度，满分1.0",
+            "ExactMatch": "精确匹配（0.0-1.0），响应与标准答案是否完全匹配，满分1.0",
+            "StringPresence": "字符串存在性（0.0-1.0），响应中是否包含特定字符串，满分1.0",
+            "NoiseSensitivity": "噪声敏感性（0.0-1.0），衡量响应对上下文噪声的敏感性，满分1.0",
+        }
+        
+        # 显示实际使用的指标
+        for metric in sorted(all_metrics):
+            description = metric_descriptions.get(metric, f"{metric}（0.0-1.0），满分1.0")
+            self.console.print(f"  • [cyan]{metric}[/cyan]: {description}")
+        
+        # 性能指标说明
         self.console.print("  • [cyan]TTFT[/cyan]: Time To First Token，首Token时间，从发送请求到收到第一个Token的耗时")
 
         # 性能指标

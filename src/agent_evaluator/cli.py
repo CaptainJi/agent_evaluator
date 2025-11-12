@@ -69,15 +69,22 @@ def create_llm(config: EvalConfig):
 
 def create_embeddings(config: EvalConfig):
     """创建Embeddings对象（如果需要）"""
+    from agent_evaluator.evaluator.metrics_registry import expand_metric_categories
+    
     llm_config = config.evaluator_llm
-
+    
+    # 先展开类别，再检查是否需要embeddings
+    expanded_metrics = expand_metric_categories(config.metrics)
+    
     # 检查是否需要embeddings
+    metrics_requiring_embeddings = ["answer_relevancy", "response_relevancy", "relevancy", "semantic_similarity"]
     needs_embeddings = any(
-        metric.lower() in ["answer_relevancy", "response_relevancy", "relevancy"]
-        for metric in config.metrics
+        metric.lower() in metrics_requiring_embeddings
+        for metric in expanded_metrics
     )
 
     if not needs_embeddings:
+        logger.debug("当前配置的指标不需要 embeddings，跳过创建")
         return None
 
     # 获取base_url，如果为None则使用默认值
@@ -203,10 +210,21 @@ async def run_evaluation(config_path: str):
         if embeddings:
             logger.info("已创建Embeddings对象")
 
-        # 创建指标
-        logger.info(f"创建评估指标: {', '.join(config.metrics)}")
+        # 创建指标（支持类别配置）
+        from agent_evaluator.evaluator.metrics_registry import expand_metric_categories
+        
+        expanded_metrics = expand_metric_categories(config.metrics)
+        if expanded_metrics != config.metrics:
+            logger.info(f"配置的指标/类别: {', '.join(config.metrics)}")
+            logger.info(f"展开后的指标: {', '.join(expanded_metrics)}")
+        else:
+            logger.info(f"创建评估指标: {', '.join(config.metrics)}")
+        
         metrics = create_metrics(config.metrics, llm, embeddings)
-        logger.debug(f"已创建 {len(metrics)} 个评估指标")
+        logger.info(f"已创建 {len(metrics)} 个评估指标对象")
+        
+        # 性能指标说明
+        logger.debug("性能指标（total_time, time_to_first_token, total_tokens等）将自动收集，无需配置")
 
         # 创建评估执行器
         # 超时时间计算：每个指标可能需要多次LLM调用

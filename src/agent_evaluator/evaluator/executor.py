@@ -122,7 +122,6 @@ class EvaluatorExecutor:
                         # 生成评分理由（基于指标类型和分数）
                         if metric_name == "Faithfulness":
                             # Faithfulness: 0.0-1.0，表示响应中忠实于上下文的主张比例
-                            # 满分是1.0，表示所有主张都能从上下文中推断出来
                             if score_value >= 0.8:
                                 reason = f"响应高度忠实于上下文（{score_value:.1%}的主张得到支持，满分1.0）"
                             elif score_value >= 0.5:
@@ -133,7 +132,6 @@ class EvaluatorExecutor:
                                 reason = "响应完全不忠实于上下文（得分0.0/1.0），存在严重幻觉"
                         elif metric_name == "ResponseRelevancy":
                             # ResponseRelevancy: 0.0-1.0，表示响应与问题的相关性
-                            # 满分是1.0，表示响应完全回答了问题
                             if score_value >= 0.8:
                                 reason = f"响应高度相关（相关性得分: {score_value:.1%}，满分1.0）"
                             elif score_value >= 0.5:
@@ -142,9 +140,86 @@ class EvaluatorExecutor:
                                 reason = f"响应相关性较低（相关性得分: {score_value:.1%}，满分1.0），可能未充分回答问题"
                             else:
                                 reason = "响应与问题不相关（得分0.0/1.0），可能完全偏离主题"
+                        elif metric_name == "ContextPrecision":
+                            # ContextPrecision: 0.0-1.0，衡量检索到的上下文中与问题相关的比例
+                            if score_value >= 0.8:
+                                reason = f"检索到的上下文高度精确（{score_value:.1%}的上下文与问题相关，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"检索到的上下文部分精确（{score_value:.1%}的上下文与问题相关，满分1.0），存在无关上下文"
+                            elif score_value > 0:
+                                reason = f"检索到的上下文精确度较低（仅{score_value:.1%}的上下文与问题相关，满分1.0），存在较多噪声"
+                            else:
+                                reason = "检索到的上下文完全不相关（得分0.0/1.0），检索质量差"
+                        elif metric_name == "ContextRecall":
+                            # ContextRecall: 0.0-1.0，衡量检索到的上下文覆盖标准答案的程度
+                            if score_value >= 0.8:
+                                reason = f"检索到的上下文高度完整（覆盖了{score_value:.1%}的标准答案内容，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"检索到的上下文部分完整（覆盖了{score_value:.1%}的标准答案内容，满分1.0），遗漏部分信息"
+                            elif score_value > 0:
+                                reason = f"检索到的上下文完整性较低（仅覆盖{score_value:.1%}的标准答案内容，满分1.0），遗漏较多信息"
+                            else:
+                                reason = "检索到的上下文完全不包含标准答案内容（得分0.0/1.0），检索召回率低"
+                        elif metric_name == "ContextEntityRecall":
+                            # ContextEntityRecall: 0.0-1.0，衡量检索到的上下文中包含标准答案中实体的比例
+                            if score_value >= 0.8:
+                                reason = f"检索到的上下文包含大部分实体（{score_value:.1%}的标准答案实体在上下文中，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"检索到的上下文包含部分实体（{score_value:.1%}的标准答案实体在上下文中，满分1.0），遗漏部分实体"
+                            elif score_value > 0:
+                                reason = f"检索到的上下文实体覆盖率较低（仅{score_value:.1%}的标准答案实体在上下文中，满分1.0），遗漏较多实体"
+                            else:
+                                reason = "检索到的上下文不包含标准答案中的实体（得分0.0/1.0），实体召回率低"
+                        elif metric_name == "AnswerCorrectness":
+                            # AnswerCorrectness: 0.0-1.0，衡量答案的正确程度
+                            if score_value >= 0.8:
+                                reason = f"答案高度正确（正确性得分: {score_value:.1%}，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"答案部分正确（正确性得分: {score_value:.1%}，满分1.0），存在部分错误"
+                            elif score_value > 0:
+                                reason = f"答案正确性较低（正确性得分: {score_value:.1%}，满分1.0），存在较多错误"
+                            else:
+                                reason = "答案完全不正确（得分0.0/1.0）"
+                        elif metric_name == "AnswerAccuracy":
+                            # AnswerAccuracy: 0.0-1.0，衡量答案的准确程度
+                            if score_value >= 0.8:
+                                reason = f"答案高度准确（准确性得分: {score_value:.1%}，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"答案部分准确（准确性得分: {score_value:.1%}，满分1.0），存在偏差"
+                            elif score_value > 0:
+                                reason = f"答案准确性较低（准确性得分: {score_value:.1%}，满分1.0），存在较大偏差"
+                            else:
+                                reason = "答案完全不准确（得分0.0/1.0）"
+                        elif metric_name == "ContextRelevance":
+                            # ContextRelevance: 0.0-1.0，衡量检索到的上下文与问题的相关性
+                            if score_value >= 0.8:
+                                reason = f"检索到的上下文高度相关（相关性得分: {score_value:.1%}，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"检索到的上下文部分相关（相关性得分: {score_value:.1%}，满分1.0），存在无关内容"
+                            elif score_value > 0:
+                                reason = f"检索到的上下文相关性较低（相关性得分: {score_value:.1%}，满分1.0），存在较多无关内容"
+                            else:
+                                reason = "检索到的上下文与问题不相关（得分0.0/1.0）"
+                        elif metric_name == "ResponseGroundedness":
+                            # ResponseGroundedness: 0.0-1.0，衡量响应基于上下文的程度
+                            if score_value >= 0.8:
+                                reason = f"响应高度基于上下文（基础性得分: {score_value:.1%}，满分1.0）"
+                            elif score_value >= 0.5:
+                                reason = f"响应部分基于上下文（基础性得分: {score_value:.1%}，满分1.0），存在未基于上下文的内容"
+                            elif score_value > 0:
+                                reason = f"响应基础性较低（基础性得分: {score_value:.1%}，满分1.0），较多内容未基于上下文"
+                            else:
+                                reason = "响应完全不基于上下文（得分0.0/1.0），可能存在幻觉"
                         else:
                             # 其他指标的通用理由
-                            reason = f"得分: {score_value:.4f}（满分: 1.0）"
+                            if score_value >= 0.8:
+                                reason = f"得分较高（{score_value:.4f}/1.0），表现良好"
+                            elif score_value >= 0.5:
+                                reason = f"得分中等（{score_value:.4f}/1.0），表现一般"
+                            elif score_value > 0:
+                                reason = f"得分较低（{score_value:.4f}/1.0），需要改进"
+                            else:
+                                reason = f"得分: {score_value:.4f}（满分: 1.0），表现较差"
                         
                         reasoning[metric_name] = reason
                         logger.info(f"[{idx}/{total_metrics}] ✅ 指标 {metric_name} 评估完成，得分: {score_value:.4f}/1.0 (耗时: {metric_duration:.2f}秒)")

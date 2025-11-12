@@ -2,6 +2,14 @@
 
 from typing import Any
 
+__all__ = [
+    "create_metric",
+    "create_metrics",
+    "expand_metric_categories",
+    "METRIC_CATEGORIES",
+    "PERFORMANCE_METRICS",
+]
+
 # 基础指标
 from ragas.metrics import (
     AnswerAccuracy,
@@ -242,18 +250,155 @@ def create_metric(
         return metric_class()
 
 
+# 指标分类定义（根据智能体测评指标文档）
+METRIC_CATEGORIES: dict[str, list[str]] = {
+    "rag": [
+        # RAG核心指标
+        "context_precision",
+        "context_recall",
+        "context_entity_recall",
+        "noise_sensitivity",
+        "response_relevancy",
+        "faithfulness",
+        # Nvidia高效指标（RAG相关）
+        "context_relevance",
+        "response_groundedness",
+        "answer_correctness",
+        "answer_accuracy",
+    ],
+    "agent": [
+        # 智能体或工具使用指标
+        "topic_adherence_score",
+        "tool_call_accuracy",
+        "agent_goal_accuracy",
+        "agent_goal_accuracy_with_reference",
+        "agent_goal_accuracy_without_reference",
+    ],
+    "llm": [
+        # 文本相似度指标
+        "semantic_similarity",
+        # n-gram重叠指标
+        "bleu_score",
+        "rouge_score",
+        "chrf_score",
+        # 字符串匹配指标
+        "exact_match",
+        "string_presence",
+        "non_llm_string_similarity",
+        # 自定义评分指标
+        "aspect_critic",
+        "simple_criteria_score",
+        "rubrics_score",
+        # 专项领域指标
+        "summarization_score",
+        "llm_sql_equivalence",
+        "data_compy_score",
+    ],
+}
+
+# 性能指标（自动收集，不需要配置）
+PERFORMANCE_METRICS = [
+    "total_time",
+    "time_to_first_token",
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "streaming_latency",
+]
+
+
+def expand_metric_categories(metric_names: list[str]) -> list[str]:
+    """
+    展开指标类别为具体指标名称列表
+    
+    Args:
+        metric_names: 指标名称或类别列表（如 ["rag", "context_precision"]）
+    
+    Returns:
+        展开后的指标名称列表（去重）
+    
+    Examples:
+        >>> expand_metric_categories(["rag", "context_precision"])
+        ["context_precision", "context_recall", "context_entity_recall", ...]
+    """
+    expanded = []
+    for name in metric_names:
+        name_lower = name.lower().strip()
+        
+        # 如果是类别，展开为具体指标
+        if name_lower in METRIC_CATEGORIES:
+            expanded.extend(METRIC_CATEGORIES[name_lower])
+        else:
+            # 否则作为具体指标名称
+            expanded.append(name)
+    
+    # 去重并保持顺序
+    seen = set()
+    result = []
+    for metric in expanded:
+        if metric not in seen:
+            seen.add(metric)
+            result.append(metric)
+    
+    return result
+
+
 def create_metrics(
     metric_names: list[str], llm: Any, embeddings: Any | None = None
 ) -> list[Any]:
     """
-    批量创建指标对象
-
+    批量创建指标对象，支持类别配置
+    
     Args:
-        metric_names: 指标名称列表
+        metric_names: 指标名称或类别列表（如 ["rag", "context_precision"]）
         llm: 评估用的LLM对象
         embeddings: 评估用的embeddings对象（可选）
-
+    
     Returns:
         Ragas指标对象列表
+    
+    Examples:
+        >>> create_metrics(["rag", "context_precision"], llm, embeddings)
+        [ContextPrecision(...), ContextRecall(...), ...]
     """
-    return [create_metric(name, llm, embeddings) for name in metric_names]
+    from agent_evaluator.utils.logger import get_logger
+    
+    logger = get_logger(__name__)
+    
+    # 先展开类别
+    expanded_names = expand_metric_categories(metric_names)
+    
+    # 需要embeddings的指标列表
+    metrics_requiring_embeddings = ["answer_relevancy", "response_relevancy", "relevancy", "semantic_similarity"]
+    
+    # 创建指标，跳过需要embeddings但embeddings为None的指标
+    metrics = []
+    skipped_metrics = []
+    
+    for name in expanded_names:
+        name_lower = name.lower().strip()
+        
+        # 检查是否需要embeddings
+        if name_lower in metrics_requiring_embeddings and embeddings is None:
+            skipped_metrics.append(name)
+            logger.warning(f"跳过指标 {name}：该指标需要 embeddings 参数，但未配置 embeddings")
+            continue
+        
+        try:
+            metric = create_metric(name, llm, embeddings)
+            metrics.append(metric)
+        except Exception as e:
+            logger.warning(f"跳过指标 {name}：创建失败 - {e}")
+            skipped_metrics.append(name)
+    
+    if not metrics:
+        raise ValueError(
+            f"无法创建任何指标。"
+            f"{'需要 embeddings 的指标被跳过: ' + ', '.join(skipped_metrics) if skipped_metrics else ''}"
+            f"请检查配置或添加 embeddings 配置。"
+        )
+    
+    if skipped_metrics:
+        logger.info(f"成功创建 {len(metrics)} 个指标，跳过 {len(skipped_metrics)} 个需要 embeddings 的指标")
+    
+    return metrics

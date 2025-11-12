@@ -38,10 +38,65 @@ class StreamingAccumulator:
         event_type = event.get("event")
 
         if event_type == "message":
-            # 累积答案片段
+            # Chat API的message事件：累积答案片段
             answer_chunk = event.get("answer", "")
             if answer_chunk:
                 self.answer += answer_chunk
+                # 记录首token时间
+                if self.first_token_time is None:
+                    self.first_token_time = current_time
+                self.last_token_time = current_time
+                self.token_timestamps.append(current_time)
+        
+        elif event_type == "agent_message":
+            # Chat API的agent_message事件：累积Agent答案片段
+            answer_chunk = event.get("answer", "")
+            if answer_chunk:
+                self.answer += answer_chunk
+                if self.first_token_time is None:
+                    self.first_token_time = current_time
+                self.last_token_time = current_time
+                self.token_timestamps.append(current_time)
+        
+        elif event_type == "message_end":
+            # Chat API的message_end事件：提取元数据和性能指标
+            metadata = event.get("metadata", {})
+            self.metadata.update(metadata)
+            
+            # 提取usage信息
+            usage = metadata.get("usage", {})
+            if usage:
+                self.total_tokens = usage.get("total_tokens", 0)
+                self.input_tokens = usage.get("prompt_tokens", 0)
+                self.output_tokens = usage.get("completion_tokens", 0)
+        
+        elif event_type == "workflow_started":
+            # Workflow API的workflow_started事件：记录工作流开始信息
+            data = event.get("data", {})
+            self.metadata.setdefault("workflow", {}).update({
+                "workflow_id": data.get("workflow_id"),
+                "workflow_run_id": data.get("id"),
+                "started_at": data.get("created_at"),
+            })
+        
+        elif event_type == "node_started":
+            # Workflow API的node_started事件：记录节点开始信息
+            data = event.get("data", {})
+            node_info = {
+                "node_id": data.get("node_id"),
+                "node_type": data.get("node_type"),
+                "title": data.get("title"),
+                "index": data.get("index"),
+                "started_at": data.get("created_at"),
+            }
+            self.metadata.setdefault("nodes_started", []).append(node_info)
+        
+        elif event_type == "text_chunk":
+            # Workflow API的text_chunk事件：累积文本片段
+            data = event.get("data", {})
+            text_chunk = data.get("text", "")
+            if text_chunk:
+                self.answer += text_chunk
                 # 记录首token时间
                 if self.first_token_time is None:
                     self.first_token_time = current_time
@@ -87,6 +142,34 @@ class StreamingAccumulator:
                 self.input_tokens = total_input_tokens
             if total_output_tokens > 0:
                 self.output_tokens = total_output_tokens
+            
+            # 从workflow_finished的outputs中提取retrieved_contexts（如果存在）
+            # 注意：workflow_finished的outputs可能包含最终输出，也可能包含retrieved_contexts
+            outputs = data.get("outputs", {})
+            if isinstance(outputs, dict):
+                if "retrieved_contexts" in outputs:
+                    contexts = outputs["retrieved_contexts"]
+                    if isinstance(contexts, list):
+                        # 合并到已有的contexts中（避免重复）
+                        existing_contexts = set(self.contexts)
+                        for ctx in contexts:
+                            if ctx and ctx not in existing_contexts:
+                                self.contexts.append(ctx)
+                                existing_contexts.add(ctx)
+                    elif isinstance(contexts, str) and contexts not in self.contexts:
+                        self.contexts.append(contexts)
+                
+                # 也检查outputs中是否有其他可能的上下文字段
+                # 某些Dify版本可能使用不同的字段名
+                for key in ["contexts", "context", "retrieved_context"]:
+                    if key in outputs and key != "retrieved_contexts":
+                        value = outputs[key]
+                        if isinstance(value, list):
+                            for ctx in value:
+                                if ctx and ctx not in self.contexts:
+                                    self.contexts.append(ctx)
+                        elif isinstance(value, str) and value not in self.contexts:
+                            self.contexts.append(value)
 
         elif event_type == "node_finished":
             # 提取节点输出（可能包含contexts和tool_calls）
@@ -94,12 +177,39 @@ class StreamingAccumulator:
             outputs = data.get("outputs", {})
 
             # 提取contexts（如果存在）
-            if "retrieved_contexts" in outputs:
-                contexts = outputs["retrieved_contexts"]
-                if isinstance(contexts, list):
-                    self.contexts.extend(contexts)
-                elif isinstance(contexts, str):
-                    self.contexts.append(contexts)
+            # 支持多种可能的字段名
+            contexts_found = False
+            for key in ["retrieved_contexts", "contexts", "context", "retrieved_context"]:
+                if key in outputs:
+                    contexts = outputs[key]
+                    contexts_found = True
+                    if isinstance(contexts, list):
+                        # 避免重复添加
+                        existing_contexts = set(self.contexts)
+                        for ctx in contexts:
+                            if ctx and ctx not in existing_contexts:
+                                self.contexts.append(ctx)
+                                existing_contexts.add(ctx)
+                    elif isinstance(contexts, str) and contexts not in self.contexts:
+                        self.contexts.append(contexts)
+                    break  # 找到第一个匹配的字段就停止
+            
+            # 如果outputs是字典但没有找到contexts字段，检查是否有嵌套结构
+            if not contexts_found and isinstance(outputs, dict):
+                # 检查outputs中是否有其他可能包含contexts的字段
+                for key, value in outputs.items():
+                    if isinstance(value, dict):
+                        # 嵌套字典中查找
+                        if "retrieved_contexts" in value:
+                            nested_contexts = value["retrieved_contexts"]
+                            if isinstance(nested_contexts, list):
+                                existing_contexts = set(self.contexts)
+                                for ctx in nested_contexts:
+                                    if ctx and ctx not in existing_contexts:
+                                        self.contexts.append(ctx)
+                                        existing_contexts.add(ctx)
+                            elif isinstance(nested_contexts, str) and nested_contexts not in self.contexts:
+                                self.contexts.append(nested_contexts)
 
             # 提取tool_calls（如果存在）
             if "tool_calls" in outputs:
