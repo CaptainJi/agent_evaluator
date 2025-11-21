@@ -100,6 +100,21 @@ class EvaluatorExecutor:
                     progress_task = asyncio.create_task(progress_monitor())
                     
                     try:
+                        # 检测是否为多轮对话指标
+                        multi_turn_metrics = [
+                            "TopicAdherenceScore",
+                            "ToolCallAccuracy",
+                            "AgentGoalAccuracyWithReference",
+                            "AgentGoalAccuracyWithoutReference",
+                        ]
+                        
+                        if metric_name in multi_turn_metrics:
+                            # 多轮对话指标需要MultiTurnSample，当前数据格式不支持
+                            error_msg = f"指标 {metric_name} 是多轮对话指标，需要MultiTurnSample数据格式，当前数据为单轮对话格式，无法评估"
+                            logger.warning(f"[{idx}/{total_metrics}] ⚠️ {error_msg}")
+                            errors[metric_name] = error_msg
+                            continue
+                        
                         logger.debug(f"[{idx}/{total_metrics}] 开始调用Ragas的single_turn_ascore方法...")
                         logger.debug(f"[{idx}/{total_metrics}] 超时设置: {self.timeout}秒")
                         

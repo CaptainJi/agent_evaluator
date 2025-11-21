@@ -230,6 +230,10 @@ def create_metric(
             # SemanticSimilarity只需要embeddings
             return metric_class(embeddings=embeddings)
     
+    # ToolCallAccuracy不需要任何参数
+    elif metric_name_lower == "tool_call_accuracy":
+        return metric_class()
+    
     # 需要LLM的指标
     elif metric_name_lower in [
         "faithfulness", "context_precision", "context_recall", 
@@ -238,7 +242,7 @@ def create_metric(
         "answer_correctness", "answer_accuracy",
         "aspect_critic", "simple_criteria_score", "rubrics_score",
         "summarization_score", "llm_sql_equivalence",
-        "topic_adherence_score", "tool_call_accuracy",
+        "topic_adherence_score",
         "agent_goal_accuracy", "agent_goal_accuracy_with_reference",
         "agent_goal_accuracy_without_reference"
     ]:
@@ -371,12 +375,27 @@ def create_metrics(
     # 需要embeddings的指标列表
     metrics_requiring_embeddings = ["answer_relevancy", "response_relevancy", "relevancy", "semantic_similarity"]
     
-    # 创建指标，跳过需要embeddings但embeddings为None的指标
+    # 多轮对话指标列表（需要MultiTurnSample，当前数据格式不支持）
+    multi_turn_metrics = [
+        "topic_adherence_score",
+        "tool_call_accuracy",
+        "agent_goal_accuracy",
+        "agent_goal_accuracy_with_reference",
+        "agent_goal_accuracy_without_reference",
+    ]
+    
+    # 创建指标，跳过需要embeddings但embeddings为None的指标，以及多轮对话指标
     metrics = []
     skipped_metrics = []
     
     for name in expanded_names:
         name_lower = name.lower().strip()
+        
+        # 检查是否为多轮对话指标
+        if name_lower in multi_turn_metrics:
+            skipped_metrics.append(name)
+            logger.warning(f"跳过指标 {name}：该指标是多轮对话指标，需要MultiTurnSample数据格式，当前数据为单轮对话格式，无法评估")
+            continue
         
         # 检查是否需要embeddings
         if name_lower in metrics_requiring_embeddings and embeddings is None:
@@ -392,13 +411,47 @@ def create_metrics(
             skipped_metrics.append(name)
     
     if not metrics:
-        raise ValueError(
-            f"无法创建任何指标。"
-            f"{'需要 embeddings 的指标被跳过: ' + ', '.join(skipped_metrics) if skipped_metrics else ''}"
-            f"请检查配置或添加 embeddings 配置。"
-        )
+        # 分析跳过的原因
+        multi_turn_skipped = [m for m in skipped_metrics if m.lower() in multi_turn_metrics]
+        embeddings_skipped = [m for m in skipped_metrics if m.lower() in metrics_requiring_embeddings]
+        other_skipped = [m for m in skipped_metrics if m.lower() not in multi_turn_metrics and m.lower() not in metrics_requiring_embeddings]
+        
+        error_parts = []
+        suggestions = []
+        
+        if multi_turn_skipped:
+            error_parts.append(f"多轮对话指标（需要MultiTurnSample数据格式）: {', '.join(multi_turn_skipped)}")
+            suggestions.append("这些指标需要多轮对话数据格式（MultiTurnSample），当前数据为单轮对话格式。建议：1) 使用 'rag' 或 'llm' 类别的指标（支持单轮对话）；2) 或准备多轮对话格式的数据")
+        
+        if embeddings_skipped:
+            error_parts.append(f"需要 embeddings 的指标: {', '.join(embeddings_skipped)}")
+            suggestions.append("这些指标需要 embeddings 参数。建议：在配置文件中添加 embeddings_model 配置")
+        
+        if other_skipped:
+            error_parts.append(f"其他原因: {', '.join(other_skipped)}")
+        
+        error_msg = "无法创建任何指标。"
+        if error_parts:
+            error_msg += "\n跳过的指标：" + "；".join(error_parts) + "。"
+        if suggestions:
+            error_msg += "\n\n建议：" + "\n".join(f"  • {s}" for s in suggestions)
+        
+        raise ValueError(error_msg)
     
     if skipped_metrics:
-        logger.info(f"成功创建 {len(metrics)} 个指标，跳过 {len(skipped_metrics)} 个需要 embeddings 的指标")
+        skipped_reasons = []
+        multi_turn_skipped = [m for m in skipped_metrics if m.lower() in multi_turn_metrics]
+        embeddings_skipped = [m for m in skipped_metrics if m.lower() in metrics_requiring_embeddings]
+        other_skipped = [m for m in skipped_metrics if m.lower() not in multi_turn_metrics and m.lower() not in metrics_requiring_embeddings]
+        
+        if multi_turn_skipped:
+            skipped_reasons.append(f"{len(multi_turn_skipped)} 个多轮对话指标")
+        if embeddings_skipped:
+            skipped_reasons.append(f"{len(embeddings_skipped)} 个需要 embeddings 的指标")
+        if other_skipped:
+            skipped_reasons.append(f"{len(other_skipped)} 个其他指标")
+        
+        reason_str = "、".join(skipped_reasons)
+        logger.info(f"成功创建 {len(metrics)} 个指标，跳过 {len(skipped_metrics)} 个指标（{reason_str}）")
     
     return metrics
