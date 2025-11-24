@@ -1,5 +1,6 @@
 """Dify平台适配器"""
 
+import asyncio
 import json
 import time
 from typing import Any
@@ -276,32 +277,50 @@ class DifyAdapter(PlatformAdapter):
         payload = self._build_payload(input, "streaming", **kwargs)
         is_workflow = self._is_workflow_api(path)
 
-        logger.debug(f"发送流式请求到: {url} (API类型: {'Workflow' if is_workflow else 'Chat'})")
+        # 获取超时时间：流式响应需要更长的超时（基础超时的10倍，最少300秒）
+        base_timeout = self.api_config.get("timeout", 30.0)
+        streaming_timeout = max(base_timeout * 10, 300.0)
+
+        logger.debug(f"发送流式请求到: {url} (API类型: {'Workflow' if is_workflow else 'Chat'}), 超时: {streaming_timeout}秒")
         start_time = time.time()
         accumulator = StreamingAccumulator()
 
-        async with self._client.stream("POST", url, json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if not line.strip() or not line.startswith("data: "):
-                    continue
+        async def _read_stream():
+            """内部函数：读取流式响应"""
+            async with self._client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip() or not line.startswith("data: "):
+                        continue
 
-                event_data = line[6:]  # 移除 "data: " 前缀
-                if event_data == "[DONE]":
-                    break
+                    event_data = line[6:]  # 移除 "data: " 前缀
+                    if event_data == "[DONE]":
+                        break
 
-                try:
-                    event = json.loads(event_data)
-                    current_time = time.time() - start_time
-                    if self.show_streaming_content:
-                        self._log_streaming_event(event, current_time, is_workflow)
-                    accumulator.accumulate(event, current_time)
-                    
-                    # Chat API的message_end事件包含retriever_resources
-                    if not is_workflow and event.get("event") == "message_end":
-                        self._extract_contexts_from_message_end(event, accumulator)
-                except json.JSONDecodeError:
-                    logger.debug(f"无法解析SSE行: {line[:50]}...")
+                    try:
+                        event = json.loads(event_data)
+                        current_time = time.time() - start_time
+                        if self.show_streaming_content:
+                            self._log_streaming_event(event, current_time, is_workflow)
+                        accumulator.accumulate(event, current_time)
+                        
+                        # Chat API的message_end事件包含retriever_resources
+                        if not is_workflow and event.get("event") == "message_end":
+                            self._extract_contexts_from_message_end(event, accumulator)
+                    except json.JSONDecodeError:
+                        logger.debug(f"无法解析SSE行: {line[:50]}...")
+
+        # 使用asyncio.wait_for包装，确保流式读取不会无限期等待
+        try:
+            await asyncio.wait_for(_read_stream(), timeout=streaming_timeout)
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            logger.warning(f"流式响应读取超时（{streaming_timeout}秒），已耗时: {elapsed:.2f}秒")
+            # 即使超时，也返回已累积的数据
+            if accumulator.answer:
+                logger.info(f"返回已累积的部分响应（{len(accumulator.answer)}字符）")
+            else:
+                raise TimeoutError(f"流式响应读取超时，在{elapsed:.2f}秒内未收到任何数据")
 
         total_time = time.time() - start_time
         logger.debug(f"流式API调用完成，耗时: {total_time:.3f}秒, 收到tokens: {len(accumulator.token_timestamps)}")

@@ -4,8 +4,15 @@ import asyncio
 import sys
 from pathlib import Path
 
+import warnings
+
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from ragas.llms import LangchainLLMWrapper
+
+# 注意：LangchainLLMWrapper已弃用，但由于我们需要支持自定义base_url（如智谱API）
+# 而llm_factory需要直接使用OpenAI客户端，无法方便地支持自定义base_url
+# 因此继续使用LangchainLLMWrapper，并抑制弃用警告
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="ragas.llms")
 
 from agent_evaluator.adapters.dify import DifyAdapter
 from agent_evaluator.core.config import EvalConfig
@@ -50,6 +57,7 @@ def create_llm(config: EvalConfig):
             max_retries=max_retries,  # 增加重试次数以应对429限流
         )
         wrapped_llm = LangchainLLMWrapper(chat_llm)
+        
         logger.info(f"已创建LLM: 模型={llm_config.model}, API端点={base_url}, 超时={timeout}秒, 最大重试={max_retries}次")
         return wrapped_llm
     elif llm_config.provider == "langgenius":
@@ -61,6 +69,7 @@ def create_llm(config: EvalConfig):
             max_retries=max_retries,  # 增加重试次数以应对429限流
         )
         wrapped_llm = LangchainLLMWrapper(chat_llm)
+        
         logger.info(f"已创建LLM (Langgenius): 模型={llm_config.model}, API端点={base_url or 'https://api.dify.ai/v1'}, 超时={timeout}秒, 最大重试={max_retries}次")
         return wrapped_llm
     else:

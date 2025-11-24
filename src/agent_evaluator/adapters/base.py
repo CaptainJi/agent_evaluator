@@ -45,8 +45,22 @@ class PlatformAdapter(ABC):
 
     async def __aenter__(self):
         """异步上下文管理器入口"""
+        # 获取基础超时时间
+        base_timeout = self.api_config.get("timeout", 30.0)
+        # 流式响应需要更长的超时时间（基础超时的10倍，最少300秒）
+        # 因为流式响应可能持续很长时间
+        streaming_timeout = max(base_timeout * 10, 300.0)
+        
+        # 设置超时：连接5秒，读取/写入使用streaming_timeout（流式响应需要更长）
+        timeout = httpx.Timeout(
+            connect=5.0,
+            read=streaming_timeout,
+            write=streaming_timeout,
+            pool=5.0,
+        )
+        
         self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(self.api_config.get("timeout", 30.0)),
+            timeout=timeout,
             headers=self._get_headers(),
         )
         return self
